@@ -1,1 +1,1 @@
-Projeto para detectar doenças em grãos utilizando o opencv
+App Project for detect Giberela in wheat grain using OPENCV and Python.

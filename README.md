@@ -1,0 +1,1 @@
+Projeto para detectar doenças em grãos utilizando o opencv

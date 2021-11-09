@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import imutils
-
+from scipy.ndimage import label
+from skimage import measure
 
 class app:
     # constructor class to handle image
@@ -13,50 +14,49 @@ class app:
         self.original = self.img.copy()
         if self.img is None:
             raise Exception(f'Falha ao carregar o arquivo {file} ')
-        self.gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-        self.ret, self.thresh = cv2.threshold(
-            self.gray, 0, 255, cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
-        self.kernel = np.ones((3, 3), np.uint8)
-        self.closing = cv2.morphologyEx(
-            self.thresh, cv2.MORPH_CLOSE, self.kernel, iterations=10)
-        self.sure_bg = cv2.dilate(self.closing, self.kernel, iterations=5)
-        self.dist_transform = cv2.distanceTransform(
-            self.closing, cv2.DIST_L2, 3)
-        self.ret, self.sure_fg = cv2.threshold(
-            self.dist_transform, 0.2*self.dist_transform.max(), 255, 0)
-        self.sure_fg = np.uint8(self.sure_fg)
-        self.unknown = cv2.subtract(self.sure_bg, self.sure_fg)
+        self.img_gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)    
+        _, self.img_bin = cv2.threshold(self.img_gray, 0, 255,
+                cv2.THRESH_OTSU)
+        self.img_bin = cv2.morphologyEx(self.img_bin, cv2.MORPH_OPEN,
+                np.ones((3, 3), dtype=int))
 
     # watershed method for segmentation
 
-    def watershed(self):
-        self.ret, self.markers = cv2.connectedComponents(self.sure_fg)
-        self.markers = self.markers+1
-        self.markers[self.unknown == 255] = 0
-        self.markers = cv2.watershed(self.img, self.markers)
-        self.img[self.markers == -1] = [255, 0, 0]
-        print("Foram encontrados {} grãos".format(len(np.unique(self.markers))-1))
+    def watershed(self, a, img):
+        self.border = cv2.dilate(img, None, iterations=5)
+        self.border = self.border - cv2.erode(self.border, None)
+        self.dt = cv2.distanceTransform(img, 2, 3)
+        self.dt = ((self.dt - self.dt.min()) / (self.dt.max() - self.dt.min()) * 255).astype(np.uint8)
+        _, self.dt = cv2.threshold(self.dt, 10, 255, cv2.THRESH_BINARY)
+        self.lbl, self.ncc = label(self.dt)
+        self.lbl = self.lbl * (255 / (self.ncc + 1))
+        self.lbl[self.border == 255] = 255
+        self.lbl = self.lbl.astype(np.int32)
+        self.lbl = cv2.watershed(a, self.lbl)
+        self.lbl[self.lbl == -1] = 0
+        self.lbl = self.lbl.astype(np.uint8)
+        self.result =  255 - self.lbl
+        self.result[self.result != 255] = 0
+        result = cv2.dilate(self.result, None)
+        self.img[result == 255] = (255, 0, 0) 
         self.get_roi()
-        cv2.imwrite('Image_WatershedSegmentation1.png', self.img)
-   
-    
+
     def get_roi(self):
-        for marker in np.unique(self.markers):
-            if marker <= 1:
-                continue
-            mask = np.zeros(self.gray.shape, dtype="uint8")
-            mask[self.markers == marker] = 255
-            cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
-                                    cv2.CHAIN_APPROX_SIMPLE)
-            cnts = imutils.grab_contours(cnts)
-            c = max(cnts, key=cv2.contourArea)
+        markers = self.lbl.astype(np.uint8)
+        ret, m2 = cv2.threshold(markers, 0, 255, cv2.THRESH_BINARY|cv2.THRESH_OTSU)
+        contours, hierarchy = cv2.findContours(m2, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        print(f'Foram encontrados {len(contours)} grãos')
+        num = 1
+        for c in contours:
             x, y, w, h = cv2.boundingRect(c)
             self.roi = self.original[y:y+h, x:x+w]
-            cv2.imwrite('grain_{}.png'.format(marker - 1), self.roi)
-        
+            cv2.imwrite('grain_{}.png'.format(num), self.roi)
+            num += 1
+        cv2.imwrite('Grain_Detected.png', self.img) 
+
 
     def run(self):
-        self.watershed()
+      self.watershed(self.img, self.img_bin)
 
 
 if __name__ == '__main__':
